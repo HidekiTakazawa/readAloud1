@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>多言語学習用 音読アプリ (Final Ver)</title>
+    <title>多言語学習用 音読アプリ (Complete Ver)</title>
     <style>
         /* CSS: デザイン定義 */
         body { font-family: "Helvetica Neue", Arial, sans-serif; background-color: #f4f4f9; color: #333; margin: 0; padding: 20px; }
@@ -11,40 +11,49 @@
         h1, h2 { text-align: center; color: #2c3e50; }
         .screen { display: none; }
         .active { display: block; }
+        
+        /* フォーム周り */
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; font-weight: bold; }
         input[type="text"], textarea, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; font-size: 16px; }
         textarea { height: 100px; resize: vertical; }
+        
+        /* ボタン */
         button { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-right: 5px; margin-bottom: 5px; }
         .btn-primary { background-color: #3498db; color: white; }
         .btn-danger { background-color: #e74c3c; color: white; }
         .btn-success { background-color: #2ecc71; color: white; }
         .btn-secondary { background-color: #95a5a6; color: white; }
+        
+        /* リスト */
         #doc-list { list-style: none; padding: 0; }
         .doc-item { background: #ecf0f1; margin-bottom: 10px; padding: 15px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
         .doc-info { cursor: pointer; flex-grow: 1; }
         .doc-lang-badge { display: inline-block; background: #34495e; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-left: 10px; }
+        
+        /* プレイヤー画面 */
         #player-display {
             font-size: 24px; line-height: 1.8; margin: 20px 0; padding: 20px; background: #fff; border: 2px solid #eee; border-radius: 8px; min-height: 150px; white-space: pre-wrap;
         }
+        
+        /* ハイライト装飾 */
         .highlight { background-color: #f1c40f; color: #000; border-radius: 3px; }
         .dimmed { opacity: 0.6; }
-        .controls { text-align: center; margin-top: 20px; }
         
-        /* 速度調整用スライダーのデザイン */
+        /* 速度調整スライダー */
         .speed-control-area {
             margin: 20px auto;
             text-align: center;
-            max-width: 300px;
+            max-width: 90%;
             background: #f9f9f9;
-            padding: 10px;
+            padding: 15px;
             border-radius: 8px;
+            border: 1px solid #eee;
         }
-        input[type=range] {
-            width: 100%;
-            cursor: pointer;
-        }
-        
+        .speed-label { font-weight: bold; margin-bottom: 10px; display: block; }
+        input[type=range] { width: 100%; cursor: pointer; height: 25px; }
+
+        .controls { text-align: center; margin-top: 20px; }
         #device-info { font-size: 0.8em; text-align: right; color: #888; margin-top: -10px; margin-bottom: 10px; }
     </style>
 </head>
@@ -92,8 +101,13 @@
 
         <!-- 速度調整エリア -->
         <div class="speed-control-area">
-            <label for="rate-slider">読み上げ速度: <span id="rate-value">1.0</span>x</label>
-            <input type="range" id="rate-slider" min="0.5" max="2.0" step="0.1" value="1.0" oninput="updateRate(this.value)" onchange="applyRateChange()">
+            <span class="speed-label">読み上げ速度: <span id="rate-value">1.0</span>x</span>
+            <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #666; margin-bottom: 5px;">
+                <span>遅い(0.5)</span>
+                <span>標準(1.0)</span>
+                <span>速い(2.0)</span>
+            </div>
+            <input type="range" id="rate-slider" min="0.5" max="2.0" step="0.1" value="1.0" oninput="updateRateDisplay(this.value)" onchange="applyRateChange(this.value)">
         </div>
 
         <div class="controls">
@@ -108,12 +122,16 @@
 <script>
     // --- 0. 環境判定 ---
     const isAndroid = /Android/i.test(navigator.userAgent);
-    document.getElementById('device-info').innerText = isAndroid 
-        ? "Mode: Android (文単位ハイライト)" 
-        : "Mode: PC/iOS (単語単位ハイライト)";
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    function updateDeviceInfo(modeText) {
+        document.getElementById('device-info').innerText = modeText;
+    }
+    // 初期表示
+    updateDeviceInfo(isAndroid ? "Mode: Android" : (isIOS ? "Mode: iOS" : "Mode: PC"));
 
     // --- 1. データ管理 ---
-    const STORAGE_KEY = 'lang_learning_app_data_v3';
+    const STORAGE_KEY = 'lang_learning_app_data_v4';
 
     function loadDocs() {
         const data = localStorage.getItem(STORAGE_KEY);
@@ -215,9 +233,9 @@
     let synth = window.speechSynthesis;
     let isPlaying = false;
     let isLooping = false;
-    let currentRate = 1.0; // 読み上げ速度
+    let currentRate = 1.0; 
 
-    // Android用変数
+    // Android/Sentence Mode用変数
     let sentenceQueue = [];
     let currentSentenceIndex = 0;
 
@@ -237,18 +255,17 @@
         document.getElementById('list-screen').classList.add('active');
     }
 
-    // 速度調整のUI更新
-    function updateRate(val) {
-        currentRate = parseFloat(val);
-        document.getElementById('rate-value').innerText = currentRate.toFixed(1);
+    // 速度調整UI
+    function updateRateDisplay(val) {
+        document.getElementById('rate-value').innerText = parseFloat(val).toFixed(1);
     }
 
-    // 速度変更の適用（再生中に変更された場合、再読み込みする）
-    function applyRateChange() {
+    // 速度変更適用
+    function applyRateChange(val) {
+        currentRate = parseFloat(val);
         if (isPlaying && isLooping) {
-            // 現在の再生をキャンセルして、新しい速度で再開
             synth.cancel();
-            startLoop();
+            startLoop(); // 新しい速度で再開
         }
     }
 
@@ -267,13 +284,34 @@
         }
     }
 
+    // 再生開始（分岐ロジック）
     function startLoop() {
         if (!currentDoc) return;
         isPlaying = true;
         isLooping = true;
+        
+        const lang = currentDoc.lang;
+        const isChineseOrJapanese = lang.startsWith('zh') || lang.startsWith('ja');
+
+        // デバッグ表示更新
+        let modeMsg = "";
+
         if (isAndroid) {
-            initAndroidMode();
-        } else {
+            // Androidは全言語で文単位
+            modeMsg = "Mode: Android (文ハイライト)";
+            updateDeviceInfo(modeMsg);
+            initSentenceMode();
+        } 
+        else if (isIOS && isChineseOrJapanese) {
+            // iPhoneかつ中国語/日本語は、バグ回避のため文単位
+            modeMsg = "Mode: iOS - CN/JP (文ハイライト回避モード)";
+            updateDeviceInfo(modeMsg);
+            initSentenceMode();
+        } 
+        else {
+            // PC、またはiPhoneの英語/ロシア語等は単語単位
+            modeMsg = "Mode: Standard (単語ハイライト)";
+            updateDeviceInfo(modeMsg);
             speakWordMode();
         }
     }
@@ -289,7 +327,7 @@
     }
 
     // ==========================================
-    // モードA: PC/iOS (単語単位ハイライト + 修正版)
+    // モードA: 単語ハイライト (PC全般, iOS英語/ロシア語)
     // ==========================================
     function speakWordMode() {
         synth.cancel();
@@ -297,7 +335,7 @@
 
         const utterance = new SpeechSynthesisUtterance(currentDoc.text);
         utterance.lang = currentDoc.lang;
-        utterance.rate = currentRate; // 速度適用
+        utterance.rate = currentRate; 
 
         const targetVoice = getBestVoice(currentDoc.lang);
         if (targetVoice) utterance.voice = targetVoice;
@@ -307,21 +345,15 @@
             const index = event.charIndex;
             let length = event.charLength;
 
-            // ★iOS/中国語対策: 長さが取得できない場合のフォールバック修正
+            // 長さ取得フォールバック
             if (!length) {
-                // 文字列の残り部分を取得
                 const remainingText = text.substring(index);
-                
-                // 次の「空白」または「句読点」を探す
-                // 英語スペース(\s), 日本語・中国語の句読点(、。，．！？等)
+                // 空白または句読点を探す
                 const match = remainingText.match(/[\s\u3000\u3001\u3002\uff0c\uff0e\uff1f\uff01]/);
-                
                 if (match) {
                     length = match.index;
-                    // もし現在位置がまさに句読点だった場合、1文字分とする
-                    if (length === 0) length = 1;
+                    if (length === 0) length = 1; // 記号そのものの時
                 } else {
-                    // 区切りが見つからない場合（文末など）、残り全て
                     length = remainingText.length;
                 }
             }
@@ -353,39 +385,40 @@
     }
 
     // ==========================================
-    // モードB: Android (文単位ハイライト)
+    // モードB: 文ハイライト (Android全般, iOS中国語)
     // ==========================================
-    function initAndroidMode() {
+    function initSentenceMode() {
         const text = currentDoc.text;
+        // 句読点で分割
         const regex = /[^.?!。？！\n]+[.?!。？！\n]*/g; 
         sentenceQueue = text.match(regex) || [text];
         currentSentenceIndex = 0;
-        speakNextSentenceAndroid();
+        speakNextSentence();
     }
 
-    function speakNextSentenceAndroid() {
+    function speakNextSentence() {
         if (!isLooping) return;
 
         if (currentSentenceIndex >= sentenceQueue.length) {
             currentSentenceIndex = 0;
-            setTimeout(speakNextSentenceAndroid, 500);
+            setTimeout(speakNextSentence, 500);
             return;
         }
 
         const sentence = sentenceQueue[currentSentenceIndex];
         const utterance = new SpeechSynthesisUtterance(sentence);
         utterance.lang = currentDoc.lang;
-        utterance.rate = currentRate; // 速度適用
+        utterance.rate = currentRate; 
         
         const targetVoice = getBestVoice(currentDoc.lang);
         if (targetVoice) utterance.voice = targetVoice;
 
-        updateHighlightAndroid();
+        updateSentenceHighlight();
 
         utterance.onend = function() {
             if (isLooping) {
                 currentSentenceIndex++;
-                speakNextSentenceAndroid();
+                speakNextSentence();
             }
         };
         utterance.onerror = function(e) {
@@ -395,7 +428,7 @@
         synth.speak(utterance);
     }
 
-    function updateHighlightAndroid() {
+    function updateSentenceHighlight() {
         const display = document.getElementById('player-display');
         let html = '';
         sentenceQueue.forEach((sent, idx) => {
