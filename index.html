@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>多言語学習用 音読アプリ (Hybrid版)</title>
+    <title>多言語学習用 音読アプリ (Final Hybrid)</title>
     <style>
         /* CSS: デザイン定義 */
         body { font-family: "Helvetica Neue", Arial, sans-serif; background-color: #f4f4f9; color: #333; margin: 0; padding: 20px; }
@@ -11,50 +11,24 @@
         h1, h2 { text-align: center; color: #2c3e50; }
         .screen { display: none; }
         .active { display: block; }
-
-        /* フォーム */
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; font-weight: bold; }
         input[type="text"], textarea, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; font-size: 16px; }
         textarea { height: 100px; resize: vertical; }
-        
-        /* ボタン */
         button { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-right: 5px; margin-bottom: 5px; }
         .btn-primary { background-color: #3498db; color: white; }
         .btn-danger { background-color: #e74c3c; color: white; }
         .btn-success { background-color: #2ecc71; color: white; }
         .btn-secondary { background-color: #95a5a6; color: white; }
-        
-        /* リスト */
         #doc-list { list-style: none; padding: 0; }
         .doc-item { background: #ecf0f1; margin-bottom: 10px; padding: 15px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
         .doc-info { cursor: pointer; flex-grow: 1; }
         .doc-lang-badge { display: inline-block; background: #34495e; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-left: 10px; }
-
-        /* プレイヤー画面 */
         #player-display {
-            font-size: 24px;
-            line-height: 1.8;
-            margin: 20px 0;
-            padding: 20px;
-            background: #fff;
-            border: 2px solid #eee;
-            border-radius: 8px;
-            min-height: 150px;
-            white-space: pre-wrap; /* 改行を維持 */
+            font-size: 24px; line-height: 1.8; margin: 20px 0; padding: 20px; background: #fff; border: 2px solid #eee; border-radius: 8px; min-height: 150px; white-space: pre-wrap;
         }
-        
-        /* ハイライト装飾 */
-        .highlight {
-            background-color: #f1c40f; /* 黄色 */
-            color: #000;
-            border-radius: 3px;
-        }
-        /* Androidモード用の非アクティブ文字（薄くする） */
-        .dimmed {
-            opacity: 0.6;
-        }
-
+        .highlight { background-color: #f1c40f; color: #000; border-radius: 3px; }
+        .dimmed { opacity: 0.6; }
         .controls { text-align: center; margin-top: 20px; }
         #device-info { font-size: 0.8em; text-align: right; color: #888; margin-top: -10px; margin-bottom: 10px; }
     </style>
@@ -68,7 +42,6 @@
     <!-- 1. 一覧・編集画面 -->
     <div id="list-screen" class="screen active">
         <h2>文書一覧 / 登録</h2>
-        
         <div style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
             <div class="form-group">
                 <label>タイトル</label>
@@ -93,16 +66,13 @@
                 <button class="btn-secondary" onclick="clearForm()">クリア</button>
             </div>
         </div>
-
         <ul id="doc-list"></ul>
     </div>
 
     <!-- 2. プレイヤー画面 -->
     <div id="player-screen" class="screen">
         <h2 id="player-title">タイトル</h2>
-        
         <div id="player-display"></div>
-
         <div class="controls">
             <button class="btn-secondary" onclick="goBack()">戻る</button>
             <button id="btn-play" class="btn-success" onclick="togglePlay()">再生</button>
@@ -114,10 +84,7 @@
 
 <script>
     // --- 0. 環境判定 ---
-    // AndroidかどうかをUAで判定
     const isAndroid = /Android/i.test(navigator.userAgent);
-    
-    // 画面に動作モードを表示（デバッグ兼確認用）
     document.getElementById('device-info').innerText = isAndroid 
         ? "Mode: Android (文単位ハイライト)" 
         : "Mode: PC/iOS (単語単位ハイライト)";
@@ -134,9 +101,22 @@
     }
 
     // --- 2. 画面操作 ---
+    
+    // 音声リストをキャッシュするための配列
+    let availableVoices = [];
+
     window.onload = function() {
         renderList();
-        if(window.speechSynthesis) window.speechSynthesis.getVoices();
+        
+        // 音声リストの読み込み（iOS/Chrome対策）
+        if(window.speechSynthesis) {
+            // イベントで取得を試みる
+            window.speechSynthesis.onvoiceschanged = function() {
+                availableVoices = window.speechSynthesis.getVoices();
+            };
+            // 初回も強制実行
+            availableVoices = window.speechSynthesis.getVoices();
+        }
     };
 
     function renderList() {
@@ -214,7 +194,7 @@
         return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
     }
 
-    // --- 3. 再生機能 (ハイブリッド対応) ---
+    // --- 3. 再生機能 (Hybrid + Voice Selection) ---
 
     let currentDoc = null;
     let synth = window.speechSynthesis;
@@ -244,10 +224,11 @@
     }
 
     function togglePlay() {
-        if (isPlaying) {
-            // Androidなどで多重再生を防ぐため
-            return;
-        }
+        if (isPlaying) return;
+        
+        // 再生前に最新の音声リストを再取得（念のため）
+        availableVoices = window.speechSynthesis.getVoices();
+        
         startLoop();
     }
 
@@ -255,33 +236,45 @@
         isPlaying = false;
         isLooping = false;
         synth.cancel();
-        
-        // ハイライト解除
         if(currentDoc) {
             document.getElementById('player-display').innerText = currentDoc.text;
         }
     }
 
-    // 再生開始（分岐ポイント）
     function startLoop() {
         if (!currentDoc) return;
         isPlaying = true;
         isLooping = true;
 
         if (isAndroid) {
-            // Androidモード：文分割方式
             initAndroidMode();
         } else {
-            // PC/その他モード：単語ハイライト方式
             speakWordMode();
         }
     }
 
+    // ★重要: 言語コードから最適なVoiceオブジェクトを探す関数
+    function getBestVoice(langCode) {
+        if (!availableVoices.length) {
+            availableVoices = window.speechSynthesis.getVoices();
+        }
+        // 1. 完全一致を探す (例: zh-CN === zh-CN)
+        let found = availableVoices.find(v => v.lang === langCode);
+        if (found) return found;
+
+        // 2. 部分一致を探す (例: zh-CN で探して zh-Hans などがヒットする場合、または zh_CN)
+        // 言語コードの頭2文字（en, zh, ru, ko）でマッチング
+        const shortLang = langCode.substring(0, 2); 
+        found = availableVoices.find(v => v.lang.startsWith(shortLang));
+        if (found) return found;
+
+        return null; // 見つからなければnull（ブラウザのデフォルトに任せる）
+    }
+
     // ==========================================
-    // モードA: PC/Windows/iOS (単語単位ハイライト)
+    // モードA: PC/iOS (単語単位ハイライト)
     // ==========================================
     function speakWordMode() {
-        // 前の音声をキャンセル
         synth.cancel();
         if(!isLooping) return;
 
@@ -289,13 +282,18 @@
         utterance.lang = currentDoc.lang;
         utterance.rate = 1.0;
 
-        // 単語の区切りイベント
+        // ★iOS修正箇所: 音声を明示的にセットする
+        const targetVoice = getBestVoice(currentDoc.lang);
+        if (targetVoice) {
+            utterance.voice = targetVoice;
+            console.log("Voice set to:", targetVoice.name);
+        }
+
         utterance.onboundary = function(event) {
             const text = currentDoc.text;
             const index = event.charIndex;
             let length = event.charLength;
 
-            // 長さが取れない場合の補完
             if (!length && length !== 0) {
                 const nextSpace = text.indexOf(' ', index);
                 if (nextSpace === -1) {
@@ -305,7 +303,6 @@
                 }
             }
 
-            // HTML差し替えによるハイライト
             const before = text.substring(0, index);
             const target = text.substring(index, index + length);
             const after = text.substring(index + length);
@@ -316,12 +313,9 @@
                 escapeHtml(after);
         };
 
-        // 終了時ループ
         utterance.onend = function() {
             if (isLooping) {
-                setTimeout(() => {
-                    if(isLooping) speakWordMode();
-                }, 500);
+                setTimeout(() => { if(isLooping) speakWordMode(); }, 500);
             } else {
                 isPlaying = false;
             }
@@ -339,7 +333,6 @@
     // モードB: Android (文単位ハイライト)
     // ==========================================
     function initAndroidMode() {
-        // 文章を句読点で分割
         const text = currentDoc.text;
         const regex = /[^.?!。？！\n]+[.?!。？！\n]*/g; 
         sentenceQueue = text.match(regex) || [text];
@@ -351,7 +344,6 @@
     function speakNextSentenceAndroid() {
         if (!isLooping) return;
 
-        // 最後まで行ったらループ
         if (currentSentenceIndex >= sentenceQueue.length) {
             currentSentenceIndex = 0;
             setTimeout(speakNextSentenceAndroid, 500);
@@ -362,7 +354,10 @@
         const utterance = new SpeechSynthesisUtterance(sentence);
         utterance.lang = currentDoc.lang;
         
-        // Androidはboundaryが効かないので、再生前にハイライト更新
+        // Androidでも念のため音声を指定しておく
+        const targetVoice = getBestVoice(currentDoc.lang);
+        if (targetVoice) utterance.voice = targetVoice;
+
         updateHighlightAndroid();
 
         utterance.onend = function() {
@@ -371,7 +366,6 @@
                 speakNextSentenceAndroid();
             }
         };
-
         utterance.onerror = function(e) {
             console.error(e);
             isPlaying = false;
@@ -386,10 +380,8 @@
         sentenceQueue.forEach((sent, idx) => {
             const escapedSent = escapeHtml(sent);
             if (idx === currentSentenceIndex) {
-                // 読んでいる文
                 html += `<span class="highlight">${escapedSent}</span>`;
             } else {
-                // 読んでいない文（薄く表示）
                 html += `<span class="dimmed">${escapedSent}</span>`;
             }
         });
