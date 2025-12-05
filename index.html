@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>多言語学習用 音読アプリ (Final Hybrid)</title>
+    <title>多言語学習用 音読アプリ (Final Ver)</title>
     <style>
         /* CSS: デザイン定義 */
         body { font-family: "Helvetica Neue", Arial, sans-serif; background-color: #f4f4f9; color: #333; margin: 0; padding: 20px; }
@@ -30,6 +30,21 @@
         .highlight { background-color: #f1c40f; color: #000; border-radius: 3px; }
         .dimmed { opacity: 0.6; }
         .controls { text-align: center; margin-top: 20px; }
+        
+        /* 速度調整用スライダーのデザイン */
+        .speed-control-area {
+            margin: 20px auto;
+            text-align: center;
+            max-width: 300px;
+            background: #f9f9f9;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+        }
+        
         #device-info { font-size: 0.8em; text-align: right; color: #888; margin-top: -10px; margin-bottom: 10px; }
     </style>
 </head>
@@ -72,7 +87,15 @@
     <!-- 2. プレイヤー画面 -->
     <div id="player-screen" class="screen">
         <h2 id="player-title">タイトル</h2>
+        
         <div id="player-display"></div>
+
+        <!-- 速度調整エリア -->
+        <div class="speed-control-area">
+            <label for="rate-slider">読み上げ速度: <span id="rate-value">1.0</span>x</label>
+            <input type="range" id="rate-slider" min="0.5" max="2.0" step="0.1" value="1.0" oninput="updateRate(this.value)" onchange="applyRateChange()">
+        </div>
+
         <div class="controls">
             <button class="btn-secondary" onclick="goBack()">戻る</button>
             <button id="btn-play" class="btn-success" onclick="togglePlay()">再生</button>
@@ -101,20 +124,14 @@
     }
 
     // --- 2. 画面操作 ---
-    
-    // 音声リストをキャッシュするための配列
     let availableVoices = [];
 
     window.onload = function() {
         renderList();
-        
-        // 音声リストの読み込み（iOS/Chrome対策）
         if(window.speechSynthesis) {
-            // イベントで取得を試みる
             window.speechSynthesis.onvoiceschanged = function() {
                 availableVoices = window.speechSynthesis.getVoices();
             };
-            // 初回も強制実行
             availableVoices = window.speechSynthesis.getVoices();
         }
     };
@@ -148,9 +165,7 @@
         const title = document.getElementById('input-title').value;
         const text = document.getElementById('input-text').value;
         const lang = document.getElementById('input-lang').value;
-
         if (!title || !text) { alert('タイトルと文章は必須です。'); return; }
-
         let docs = loadDocs();
         if (id) {
             const index = docs.findIndex(d => d.id === id);
@@ -194,12 +209,13 @@
         return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
     }
 
-    // --- 3. 再生機能 (Hybrid + Voice Selection) ---
+    // --- 3. 再生機能 ---
 
     let currentDoc = null;
     let synth = window.speechSynthesis;
     let isPlaying = false;
     let isLooping = false;
+    let currentRate = 1.0; // 読み上げ速度
 
     // Android用変数
     let sentenceQueue = [];
@@ -209,10 +225,8 @@
         const docs = loadDocs();
         currentDoc = docs.find(d => d.id === id);
         if (!currentDoc) return;
-
         document.getElementById('player-title').textContent = currentDoc.title;
         document.getElementById('player-display').innerText = currentDoc.text;
-
         document.getElementById('list-screen').classList.remove('active');
         document.getElementById('player-screen').classList.add('active');
     }
@@ -223,12 +237,24 @@
         document.getElementById('list-screen').classList.add('active');
     }
 
+    // 速度調整のUI更新
+    function updateRate(val) {
+        currentRate = parseFloat(val);
+        document.getElementById('rate-value').innerText = currentRate.toFixed(1);
+    }
+
+    // 速度変更の適用（再生中に変更された場合、再読み込みする）
+    function applyRateChange() {
+        if (isPlaying && isLooping) {
+            // 現在の再生をキャンセルして、新しい速度で再開
+            synth.cancel();
+            startLoop();
+        }
+    }
+
     function togglePlay() {
         if (isPlaying) return;
-        
-        // 再生前に最新の音声リストを再取得（念のため）
         availableVoices = window.speechSynthesis.getVoices();
-        
         startLoop();
     }
 
@@ -245,7 +271,6 @@
         if (!currentDoc) return;
         isPlaying = true;
         isLooping = true;
-
         if (isAndroid) {
             initAndroidMode();
         } else {
@@ -253,26 +278,18 @@
         }
     }
 
-    // ★重要: 言語コードから最適なVoiceオブジェクトを探す関数
     function getBestVoice(langCode) {
-        if (!availableVoices.length) {
-            availableVoices = window.speechSynthesis.getVoices();
-        }
-        // 1. 完全一致を探す (例: zh-CN === zh-CN)
+        if (!availableVoices.length) availableVoices = window.speechSynthesis.getVoices();
         let found = availableVoices.find(v => v.lang === langCode);
         if (found) return found;
-
-        // 2. 部分一致を探す (例: zh-CN で探して zh-Hans などがヒットする場合、または zh_CN)
-        // 言語コードの頭2文字（en, zh, ru, ko）でマッチング
         const shortLang = langCode.substring(0, 2); 
         found = availableVoices.find(v => v.lang.startsWith(shortLang));
         if (found) return found;
-
-        return null; // 見つからなければnull（ブラウザのデフォルトに任せる）
+        return null;
     }
 
     // ==========================================
-    // モードA: PC/iOS (単語単位ハイライト)
+    // モードA: PC/iOS (単語単位ハイライト + 修正版)
     // ==========================================
     function speakWordMode() {
         synth.cancel();
@@ -280,26 +297,32 @@
 
         const utterance = new SpeechSynthesisUtterance(currentDoc.text);
         utterance.lang = currentDoc.lang;
-        utterance.rate = 1.0;
+        utterance.rate = currentRate; // 速度適用
 
-        // ★iOS修正箇所: 音声を明示的にセットする
         const targetVoice = getBestVoice(currentDoc.lang);
-        if (targetVoice) {
-            utterance.voice = targetVoice;
-            console.log("Voice set to:", targetVoice.name);
-        }
+        if (targetVoice) utterance.voice = targetVoice;
 
         utterance.onboundary = function(event) {
             const text = currentDoc.text;
             const index = event.charIndex;
             let length = event.charLength;
 
-            if (!length && length !== 0) {
-                const nextSpace = text.indexOf(' ', index);
-                if (nextSpace === -1) {
-                    length = text.length - index;
+            // ★iOS/中国語対策: 長さが取得できない場合のフォールバック修正
+            if (!length) {
+                // 文字列の残り部分を取得
+                const remainingText = text.substring(index);
+                
+                // 次の「空白」または「句読点」を探す
+                // 英語スペース(\s), 日本語・中国語の句読点(、。，．！？等)
+                const match = remainingText.match(/[\s\u3000\u3001\u3002\uff0c\uff0e\uff1f\uff01]/);
+                
+                if (match) {
+                    length = match.index;
+                    // もし現在位置がまさに句読点だった場合、1文字分とする
+                    if (length === 0) length = 1;
                 } else {
-                    length = nextSpace - index;
+                    // 区切りが見つからない場合（文末など）、残り全て
+                    length = remainingText.length;
                 }
             }
 
@@ -336,7 +359,6 @@
         const text = currentDoc.text;
         const regex = /[^.?!。？！\n]+[.?!。？！\n]*/g; 
         sentenceQueue = text.match(regex) || [text];
-        
         currentSentenceIndex = 0;
         speakNextSentenceAndroid();
     }
@@ -353,8 +375,8 @@
         const sentence = sentenceQueue[currentSentenceIndex];
         const utterance = new SpeechSynthesisUtterance(sentence);
         utterance.lang = currentDoc.lang;
+        utterance.rate = currentRate; // 速度適用
         
-        // Androidでも念のため音声を指定しておく
         const targetVoice = getBestVoice(currentDoc.lang);
         if (targetVoice) utterance.voice = targetVoice;
 
@@ -370,7 +392,6 @@
             console.error(e);
             isPlaying = false;
         };
-
         synth.speak(utterance);
     }
 
