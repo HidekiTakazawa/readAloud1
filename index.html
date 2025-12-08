@@ -3,7 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>多言語学習用 音読アプリ (Complete Ver)</title>
+    <title>Multilingual Reader</title>
+    
+    <!-- PWA用設定 -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#3498db">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    
     <style>
         /* CSS: デザイン定義 */
         body { font-family: "Helvetica Neue", Arial, sans-serif; background-color: #f4f4f9; color: #333; margin: 0; padding: 20px; }
@@ -96,9 +102,7 @@
     <!-- 2. プレイヤー画面 -->
     <div id="player-screen" class="screen">
         <h2 id="player-title">タイトル</h2>
-        
         <div id="player-display"></div>
-
         <!-- 速度調整エリア -->
         <div class="speed-control-area">
             <span class="speed-label">読み上げ速度: <span id="rate-value">1.0</span>x</span>
@@ -120,6 +124,17 @@
 </div>
 
 <script>
+    // --- PWA Service Worker Registration ---
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+            navigator.serviceWorker.register('sw.js').then(function(registration) {
+                console.log('ServiceWorker registration successful');
+            }, function(err) {
+                console.log('ServiceWorker registration failed: ', err);
+            });
+        });
+    }
+
     // --- 0. 環境判定 ---
     const isAndroid = /Android/i.test(navigator.userAgent);
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -127,7 +142,6 @@
     function updateDeviceInfo(modeText) {
         document.getElementById('device-info').innerText = modeText;
     }
-    // 初期表示
     updateDeviceInfo(isAndroid ? "Mode: Android" : (isIOS ? "Mode: iOS" : "Mode: PC"));
 
     // --- 1. データ管理 ---
@@ -228,14 +242,11 @@
     }
 
     // --- 3. 再生機能 ---
-
     let currentDoc = null;
     let synth = window.speechSynthesis;
     let isPlaying = false;
     let isLooping = false;
     let currentRate = 1.0; 
-
-    // Android/Sentence Mode用変数
     let sentenceQueue = [];
     let currentSentenceIndex = 0;
 
@@ -255,17 +266,15 @@
         document.getElementById('list-screen').classList.add('active');
     }
 
-    // 速度調整UI
     function updateRateDisplay(val) {
         document.getElementById('rate-value').innerText = parseFloat(val).toFixed(1);
     }
 
-    // 速度変更適用
     function applyRateChange(val) {
         currentRate = parseFloat(val);
         if (isPlaying && isLooping) {
             synth.cancel();
-            startLoop(); // 新しい速度で再開
+            startLoop(); 
         }
     }
 
@@ -284,7 +293,6 @@
         }
     }
 
-    // 再生開始（分岐ロジック）
     function startLoop() {
         if (!currentDoc) return;
         isPlaying = true;
@@ -293,25 +301,16 @@
         const lang = currentDoc.lang;
         const isChineseOrJapanese = lang.startsWith('zh') || lang.startsWith('ja');
 
-        // デバッグ表示更新
-        let modeMsg = "";
-
         if (isAndroid) {
-            // Androidは全言語で文単位
-            modeMsg = "Mode: Android (文ハイライト)";
-            updateDeviceInfo(modeMsg);
+            updateDeviceInfo("Mode: Android (文ハイライト)");
             initSentenceMode();
         } 
         else if (isIOS && isChineseOrJapanese) {
-            // iPhoneかつ中国語/日本語は、バグ回避のため文単位
-            modeMsg = "Mode: iOS - CN/JP (文ハイライト回避モード)";
-            updateDeviceInfo(modeMsg);
+            updateDeviceInfo("Mode: iOS - CN/JP (文ハイライト回避モード)");
             initSentenceMode();
         } 
         else {
-            // PC、またはiPhoneの英語/ロシア語等は単語単位
-            modeMsg = "Mode: Standard (単語ハイライト)";
-            updateDeviceInfo(modeMsg);
+            updateDeviceInfo("Mode: Standard (単語ハイライト)");
             speakWordMode();
         }
     }
@@ -326,9 +325,6 @@
         return null;
     }
 
-    // ==========================================
-    // モードA: 単語ハイライト (PC全般, iOS英語/ロシア語)
-    // ==========================================
     function speakWordMode() {
         synth.cancel();
         if(!isLooping) return;
@@ -344,30 +340,22 @@
             const text = currentDoc.text;
             const index = event.charIndex;
             let length = event.charLength;
-
-            // 長さ取得フォールバック
             if (!length) {
                 const remainingText = text.substring(index);
-                // 空白または句読点を探す
                 const match = remainingText.match(/[\s\u3000\u3001\u3002\uff0c\uff0e\uff1f\uff01]/);
                 if (match) {
                     length = match.index;
-                    if (length === 0) length = 1; // 記号そのものの時
+                    if (length === 0) length = 1;
                 } else {
                     length = remainingText.length;
                 }
             }
-
             const before = text.substring(0, index);
             const target = text.substring(index, index + length);
             const after = text.substring(index + length);
-
             document.getElementById('player-display').innerHTML = 
-                escapeHtml(before) + 
-                '<span class="highlight">' + escapeHtml(target) + '</span>' + 
-                escapeHtml(after);
+                escapeHtml(before) + '<span class="highlight">' + escapeHtml(target) + '</span>' + escapeHtml(after);
         };
-
         utterance.onend = function() {
             if (isLooping) {
                 setTimeout(() => { if(isLooping) speakWordMode(); }, 500);
@@ -375,21 +363,12 @@
                 isPlaying = false;
             }
         };
-
-        utterance.onerror = function(e) {
-            console.error('Playback Error', e);
-            isPlaying = false;
-        };
-
+        utterance.onerror = function(e) { console.error('Playback Error', e); isPlaying = false; };
         synth.speak(utterance);
     }
 
-    // ==========================================
-    // モードB: 文ハイライト (Android全般, iOS中国語)
-    // ==========================================
     function initSentenceMode() {
         const text = currentDoc.text;
-        // 句読点で分割
         const regex = /[^.?!。？！\n]+[.?!。？！\n]*/g; 
         sentenceQueue = text.match(regex) || [text];
         currentSentenceIndex = 0;
@@ -398,33 +377,25 @@
 
     function speakNextSentence() {
         if (!isLooping) return;
-
         if (currentSentenceIndex >= sentenceQueue.length) {
             currentSentenceIndex = 0;
             setTimeout(speakNextSentence, 500);
             return;
         }
-
         const sentence = sentenceQueue[currentSentenceIndex];
         const utterance = new SpeechSynthesisUtterance(sentence);
         utterance.lang = currentDoc.lang;
         utterance.rate = currentRate; 
-        
         const targetVoice = getBestVoice(currentDoc.lang);
         if (targetVoice) utterance.voice = targetVoice;
-
         updateSentenceHighlight();
-
         utterance.onend = function() {
             if (isLooping) {
                 currentSentenceIndex++;
                 speakNextSentence();
             }
         };
-        utterance.onerror = function(e) {
-            console.error(e);
-            isPlaying = false;
-        };
+        utterance.onerror = function(e) { console.error(e); isPlaying = false; };
         synth.speak(utterance);
     }
 
@@ -441,8 +412,6 @@
         });
         display.innerHTML = html;
     }
-
 </script>
-
 </body>
 </html>
