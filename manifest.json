@@ -1,6 +1,6 @@
 {
   "name": "外国語音読アプリ",
-  "short_name": "MultiReader音読アプリ",
+  "short_name": "音読アプリ",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#ffffff",
