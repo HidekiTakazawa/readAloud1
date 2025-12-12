@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>音読アプリ</title>
+    <title>Multilingual Reader</title>
     
     <!-- PWA用設定 -->
     <link rel="manifest" href="manifest.json">
@@ -66,7 +66,7 @@
 <body>
 
 <div class="container">
-    <h1>外国語音読アプリ</h1>
+    <h1>Multilingual Reader</h1>
     <div id="device-info"></div>
 
     <!-- 1. 一覧・編集画面 -->
@@ -241,7 +241,34 @@
         return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
     }
 
-    // --- 3. 再生機能 ---
+    // --- 3. 再生機能 ＆ 画面常時点灯機能 ---
+    
+    // ★追加: Wake Lock API用変数
+    let wakeLock = null;
+
+    // ★追加: 画面ロック禁止（常時点灯）をリクエスト
+    async function requestWakeLock() {
+        if ('wakeLock' in navigator) {
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                console.log('Wake Lock is active');
+                wakeLock.addEventListener('release', () => {
+                    console.log('Wake Lock was released');
+                });
+            } catch (err) {
+                console.error(`${err.name}, ${err.message}`);
+            }
+        }
+    }
+
+    // ★追加: 画面ロック禁止を解除
+    function releaseWakeLock() {
+        if (wakeLock !== null) {
+            wakeLock.release();
+            wakeLock = null;
+        }
+    }
+
     let currentDoc = null;
     let synth = window.speechSynthesis;
     let isPlaying = false;
@@ -281,6 +308,10 @@
     function togglePlay() {
         if (isPlaying) return;
         availableVoices = window.speechSynthesis.getVoices();
+        
+        // ★追加: 再生開始時に画面を常時点灯にする
+        requestWakeLock();
+        
         startLoop();
     }
 
@@ -288,6 +319,10 @@
         isPlaying = false;
         isLooping = false;
         synth.cancel();
+        
+        // ★追加: 停止時に画面の常時点灯を解除する
+        releaseWakeLock();
+
         if(currentDoc) {
             document.getElementById('player-display').innerText = currentDoc.text;
         }
@@ -361,9 +396,10 @@
                 setTimeout(() => { if(isLooping) speakWordMode(); }, 500);
             } else {
                 isPlaying = false;
+                releaseWakeLock(); // 自動終了時にも解除
             }
         };
-        utterance.onerror = function(e) { console.error('Playback Error', e); isPlaying = false; };
+        utterance.onerror = function(e) { console.error('Playback Error', e); isPlaying = false; releaseWakeLock(); };
         synth.speak(utterance);
     }
 
@@ -395,7 +431,7 @@
                 speakNextSentence();
             }
         };
-        utterance.onerror = function(e) { console.error(e); isPlaying = false; };
+        utterance.onerror = function(e) { console.error(e); isPlaying = false; releaseWakeLock(); };
         synth.speak(utterance);
     }
 
